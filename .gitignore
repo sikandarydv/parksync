@@ -1,0 +1,6 @@
+parksync-frontend/
+node_modules/
+parksync-frontend/dist/
+parksync-backend/target/
+.vscode/
+.idea/
