@@ -8,10 +8,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.parksync.backend.dto.request.ExtendReservationRequest;
 import com.parksync.backend.dto.request.ReservationRequest;
 import com.parksync.backend.dto.response.ReservationResponse;
 import com.parksync.backend.dto.response.SlotAvailabilityResponse;
@@ -34,6 +36,9 @@ public class ReservationService {
     private final AppUserService appUserService;
     private final VehicleService vehicleService;
     private final ParkingLotService parkingLotService;
+
+    @Value("${parksync.reservation.buffer-minutes:60}")
+    private int bufferMinutes;
 
     public ReservationService(
             ReservationRepository reservationRepository,
@@ -127,10 +132,10 @@ public class ReservationService {
             throw new BadRequestException("The parking lot for this slot is inactive");
         }
 
-        // Double-booking prevention: overlap query
-        List<Reservation> overlaps = reservationRepository.findOverlappingReservations(slot.getSlotId(), start, end);
+        // Double-booking prevention: overlap query with +1 hour buffer safety zone
+        List<Reservation> overlaps = findConflictsWithBuffer(slot.getSlotId(), start, end, null);
         if (!overlaps.isEmpty()) {
-            throw new ConflictException("Slot " + slot.getSlotNumber() + " is already booked for the requested time period (" +
+            throw new ConflictException("Slot " + slot.getSlotNumber() + " is already booked or protected by buffer for the requested time period (" +
                     start + " to " + end + ")");
         }
 
@@ -198,7 +203,7 @@ public class ReservationService {
 
             boolean isAvailable = true;
             if (start != null && end != null && end.isAfter(start)) {
-                List<Reservation> overlaps = reservationRepository.findOverlappingReservations(s.getSlotId(), start, end);
+                List<Reservation> overlaps = findConflictsWithBuffer(s.getSlotId(), start, end, null);
                 isAvailable = overlaps.isEmpty();
             } else {
                 isAvailable = "AVAILABLE".equalsIgnoreCase(s.getStatus());
@@ -209,6 +214,67 @@ public class ReservationService {
         }
 
         return results;
+    }
+
+    public List<Reservation> findConflictsWithBuffer(Long slotId, LocalDateTime start, LocalDateTime end, Long excludeReservationId) {
+        LocalDateTime effectiveStart = start.minusMinutes(bufferMinutes);
+        LocalDateTime effectiveEnd = end.plusMinutes(bufferMinutes);
+        if (excludeReservationId != null) {
+            return reservationRepository.findOverlappingReservationsExcluding(slotId, excludeReservationId, effectiveStart, effectiveEnd);
+        }
+        return reservationRepository.findOverlappingReservations(slotId, effectiveStart, effectiveEnd);
+    }
+
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public ReservationResponse extendReservation(Long reservationId, ExtendReservationRequest request, Long requestingUserId, boolean isAdmin) {
+        Reservation reservation = getRequiredReservationById(reservationId);
+
+        if (!isAdmin && requestingUserId != null && !reservation.getUser().getUserId().equals(requestingUserId)) {
+            throw new BadRequestException("You can only extend your own reservations");
+        }
+
+        if (!"CONFIRMED".equalsIgnoreCase(reservation.getStatus()) && !"PENDING".equalsIgnoreCase(reservation.getStatus())) {
+            throw new BadRequestException("Only active or confirmed reservations can be extended");
+        }
+
+        int extraHours = request != null && request.getExtraHours() != null ? request.getExtraHours() : 1;
+        LocalDateTime currentEnd = reservation.getEndTime();
+        LocalDateTime newEnd = currentEnd.plusHours(extraHours);
+
+        // Lock slot to prevent race condition during extension
+        ParkingSlot slot = parkingSlotRepository.findByIdWithLock(reservation.getSlot().getSlotId())
+                .orElseThrow(() -> new ResourceNotFoundException("Parking slot not found with ID: " + reservation.getSlot().getSlotId()));
+
+        // Check if extending clashes with another reservation after currentEnd
+        List<Reservation> overlaps = reservationRepository.findOverlappingReservationsExcluding(
+                slot.getSlotId(), reservation.getReservationId(), currentEnd, newEnd.plusMinutes(bufferMinutes));
+
+        if (!overlaps.isEmpty()) {
+            throw new ConflictException("Cannot extend slot " + slot.getSlotNumber() + 
+                    ": another reservation begins at " + overlaps.get(0).getStartTime());
+        }
+
+        ParkingLot lot = slot.getParkingLot();
+        BigDecimal hourlyRate = lot != null && lot.getPricePerHour() != null ? lot.getPricePerHour() : BigDecimal.valueOf(30.0);
+        BigDecimal extraAmount = hourlyRate.multiply(BigDecimal.valueOf(extraHours)).setScale(2, RoundingMode.HALF_UP);
+
+        reservation.setEndTime(newEnd);
+        reservation.setTotalAmount(reservation.getTotalAmount().add(extraAmount));
+        // Reset alert sent flag so user gets a new alert 15-30 mins before the extended window ends!
+        reservation.setAlertSent(false);
+
+        Reservation saved = reservationRepository.save(reservation);
+        return ReservationResponse.fromEntity(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean checkExtensionAvailable(Long reservationId, int extraHours) {
+        Reservation reservation = getRequiredReservationById(reservationId);
+        LocalDateTime currentEnd = reservation.getEndTime();
+        LocalDateTime newEnd = currentEnd.plusHours(extraHours);
+        List<Reservation> overlaps = reservationRepository.findOverlappingReservationsExcluding(
+                reservation.getSlot().getSlotId(), reservation.getReservationId(), currentEnd, newEnd.plusMinutes(bufferMinutes));
+        return overlaps.isEmpty();
     }
 
     public BigDecimal calculatePrice(BigDecimal hourlyRate, LocalDateTime start, LocalDateTime end) {

@@ -1,6 +1,14 @@
-parksync-frontend/
-node_modules/
+# Dependencies & Build outputs
+parksync-frontend/node_modules/
 parksync-frontend/dist/
 parksync-backend/target/
+
+# IDE & Editor files
 .vscode/
 .idea/
+
+# Agent and OS metadata
+.agents/
+skills-lock.json
+.DS_Store
+Thumbs.db

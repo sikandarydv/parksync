@@ -20,6 +20,24 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("requestedStartTime") LocalDateTime requestedStartTime,
             @Param("requestedEndTime") LocalDateTime requestedEndTime);
 
+    @Query("SELECT r FROM Reservation r WHERE r.slot.slotId = :slotId " +
+           "AND r.reservationId <> :excludeReservationId " +
+           "AND r.status IN ('PENDING', 'CONFIRMED') " +
+           "AND r.startTime < :requestedEndTime " +
+           "AND r.endTime > :requestedStartTime")
+    List<Reservation> findOverlappingReservationsExcluding(
+            @Param("slotId") Long slotId,
+            @Param("excludeReservationId") Long excludeReservationId,
+            @Param("requestedStartTime") LocalDateTime requestedStartTime,
+            @Param("requestedEndTime") LocalDateTime requestedEndTime);
+
+    @Query("SELECT r FROM Reservation r WHERE r.status = 'CONFIRMED' " +
+           "AND (r.alertSent IS NULL OR r.alertSent = false) " +
+           "AND r.endTime BETWEEN :fromTime AND :toTime")
+    List<Reservation> findExpiringReservations(
+            @Param("fromTime") LocalDateTime fromTime,
+            @Param("toTime") LocalDateTime toTime);
+
     List<Reservation> findByUserUserIdOrderByCreatedAtDesc(Long userId);
 
     List<Reservation> findBySlotSlotIdOrderByStartTimeDesc(Long slotId);

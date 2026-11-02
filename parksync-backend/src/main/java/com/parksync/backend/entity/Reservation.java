@@ -47,6 +47,9 @@ public class Reservation {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    @Column(name = "alert_sent")
+    private Boolean alertSent = false;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -135,6 +138,14 @@ public class Reservation {
 
     public void setTotalAmount(BigDecimal totalAmount) {
         this.totalAmount = totalAmount;
+    }
+
+    public Boolean getAlertSent() {
+        return alertSent != null && alertSent;
+    }
+
+    public void setAlertSent(Boolean alertSent) {
+        this.alertSent = alertSent;
     }
 
     public LocalDateTime getCreatedAt() {

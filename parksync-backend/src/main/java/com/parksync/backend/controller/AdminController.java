@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,12 +17,14 @@ import org.springframework.web.bind.annotation.RestController;
 import com.parksync.backend.dto.response.PaymentResponse;
 import com.parksync.backend.dto.response.ReservationResponse;
 import com.parksync.backend.dto.response.UserResponse;
+import com.parksync.backend.entity.Reservation;
 import com.parksync.backend.repository.AppUserRepository;
 import com.parksync.backend.repository.ParkingLotRepository;
 import com.parksync.backend.repository.ParkingSlotRepository;
 import com.parksync.backend.repository.PaymentRepository;
 import com.parksync.backend.repository.ReservationRepository;
 import com.parksync.backend.service.AppUserService;
+import com.parksync.backend.service.EmailService;
 import com.parksync.backend.service.PaymentService;
 import com.parksync.backend.service.ReservationService;
 
@@ -37,6 +40,7 @@ public class AdminController {
     private final AppUserService appUserService;
     private final ReservationService reservationService;
     private final PaymentService paymentService;
+    private final EmailService emailService;
 
     public AdminController(
             ParkingLotRepository parkingLotRepository,
@@ -46,7 +50,8 @@ public class AdminController {
             PaymentRepository paymentRepository,
             AppUserService appUserService,
             ReservationService reservationService,
-            PaymentService paymentService) {
+            PaymentService paymentService,
+            EmailService emailService) {
         this.parkingLotRepository = parkingLotRepository;
         this.parkingSlotRepository = parkingSlotRepository;
         this.appUserRepository = appUserRepository;
@@ -55,6 +60,7 @@ public class AdminController {
         this.appUserService = appUserService;
         this.reservationService = reservationService;
         this.paymentService = paymentService;
+        this.emailService = emailService;
     }
 
     @GetMapping("/stats")
@@ -105,5 +111,16 @@ public class AdminController {
     @GetMapping("/payments")
     public ResponseEntity<List<PaymentResponse>> getAllPayments() {
         return ResponseEntity.ok(paymentService.getAllPayments());
+    }
+
+    @PostMapping("/send-test-alert")
+    public ResponseEntity<Map<String, Object>> sendTestAlert(@RequestParam Long reservationId) {
+        Reservation res = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new com.parksync.backend.exception.ResourceNotFoundException("Reservation not found: " + reservationId));
+        emailService.sendExpiryAlertEmail(res);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Test alert email dispatched for reservation #" + reservationId + " to " + res.getUser().getEmail()
+        ));
     }
 }

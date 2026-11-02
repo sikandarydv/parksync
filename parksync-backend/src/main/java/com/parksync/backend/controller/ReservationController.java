@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.parksync.backend.dto.request.ExtendReservationRequest;
 import com.parksync.backend.dto.request.ReservationRequest;
 import com.parksync.backend.dto.response.ReservationResponse;
 import com.parksync.backend.dto.response.SlotAvailabilityResponse;
@@ -80,6 +81,28 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> completeReservation(@PathVariable Long id) {
         ReservationResponse response = reservationService.completeReservation(id);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/extend")
+    public ResponseEntity<ReservationResponse> extendReservation(
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) ExtendReservationRequest request,
+            @RequestAttribute(value = "currentUserId", required = false) Long currentUserId,
+            @RequestAttribute(value = "currentUserRole", required = false) String currentUserRole) {
+        if (request == null) {
+            request = new ExtendReservationRequest(1);
+        }
+        boolean isAdmin = "ROLE_ADMIN".equals(currentUserRole);
+        ReservationResponse response = reservationService.extendReservation(id, request, currentUserId, isAdmin);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/check-extension")
+    public ResponseEntity<?> checkExtensionAvailability(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "1") int extraHours) {
+        boolean available = reservationService.checkExtensionAvailable(id, extraHours);
+        return ResponseEntity.ok(java.util.Map.of("available", available, "extraHours", extraHours));
     }
 
     @GetMapping("/availability")

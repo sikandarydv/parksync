@@ -23,10 +23,15 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
+    private final EmailService emailService;
 
-    public PaymentService(PaymentRepository paymentRepository, ReservationRepository reservationRepository) {
+    public PaymentService(
+            PaymentRepository paymentRepository, 
+            ReservationRepository reservationRepository,
+            EmailService emailService) {
         this.paymentRepository = paymentRepository;
         this.reservationRepository = reservationRepository;
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -68,6 +73,11 @@ public class PaymentService {
         }
 
         Payment saved = paymentRepository.save(payment);
+
+        if ("SUCCESS".equalsIgnoreCase(saved.getPaymentStatus())) {
+            emailService.sendBookingConfirmationEmail(reservation, saved);
+        }
+
         return PaymentResponse.fromEntity(saved);
     }
 
